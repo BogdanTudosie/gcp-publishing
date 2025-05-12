@@ -1,0 +1,12 @@
+{
+  "name": "google-cloud-publishing",
+  "version": "1.0.0",
+  "description": "Test package for Google Cloud",
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "test": "npm test"
+  }
+}
