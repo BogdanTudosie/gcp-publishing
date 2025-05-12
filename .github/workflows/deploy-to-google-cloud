@@ -4,31 +4,43 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+    
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-
-    - name: Authenticate to Google Cloud
+      
+    - name: Google Auth
+      id: auth
       uses: google-github-actions/auth@v2
       with:
-        workload_identity_provider: 'projects/123456789/locations/global/workloadIdentityPools/my-pool/providers/my-provider'
-        service_account: 'my-service-account@my-project.iam.gserviceaccount.com'
-
+        workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+        service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+        
     - name: Set up Cloud SDK
       uses: google-github-actions/setup-gcloud@v2
-
-    - name: Build and push Docker image
+      
+    - name: Build and Deploy
       run: |
-        gcloud builds submit --tag gcr.io/YOUR_PROJECT_ID/YOUR_APP_NAME
-
-    - name: Deploy to Cloud Run
-      uses: google-github-actions/deploy-cloudrun@v2
-      with:
-        service: YOUR_SERVICE_NAME
-        image: gcr.io/YOUR_PROJECT_ID/YOUR_APP_NAME
-        region: us-central1
+        gcloud run deploy my-app-${{ github.event.inputs.environment || 'dev' }} \
+          --region=us-central1 \
+          --source=. \
+          --project=${{ secrets.GCP_PROJECT_ID }} \
+          --allow-unauthenticated
