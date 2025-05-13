@@ -1,9 +1,10 @@
-name: Deploy to E2 VM
+name: Deploy to Cloud Run
 
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -26,32 +27,58 @@ jobs:
     - name: Set up Cloud SDK
       uses: google-github-actions/setup-gcloud@v2
       
-    - name: Setup SSH for VM
+    - name: Print debug info
       run: |
-        # Generate a temporary SSH key
-        ssh-keygen -t rsa -b 4096 -C "github-actions" -f ~/.ssh/google_compute_engine -N ""
+        echo "Authenticated as:"
+        gcloud auth list
+        echo "Service account details:"
+        gcloud iam service-accounts describe ${{ secrets.GCP_SERVICE_ACCOUNT }}
+        echo "Current project:"
+        gcloud config get-value project
         
-        # Get the public key content
-        SSH_PUBLIC_KEY=$(cat ~/.ssh/google_compute_engine.pub)
-        
-        # Add the SSH key to the VM's metadata
-        gcloud compute instances add-metadata my-app-server \
-          --zone=us-central1-a \
-          --metadata="ssh-keys=github-actions:${SSH_PUBLIC_KEY}"
+    - name: Create Dockerfile if not exists
+      run: |
+        if [ ! -f "Dockerfile" ]; then
+          echo "Creating a basic Dockerfile..."
+          cat > Dockerfile << 'EOL'
+          FROM python:3.9-slim
+          WORKDIR /app
+          COPY . .
+          RUN pip install flask gunicorn
+          CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 app:app
+          EOL
+          
+          # Create a simple Flask app if it doesn't exist
+          if [ ! -f "app.py" ]; then
+            cat > app.py << 'EOL'
+            from flask import Flask
+            app = Flask(__name__)
+            
+            @app.route('/')
+            def hello():
+                return 'Hello, World! This is a GitHub Actions deployment to Cloud Run.'
+            
+            if __name__ == '__main__':
+                app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+            EOL
+          fi
+        fi
       
-    - name: Build the application
+    - name: Try to build and push Docker image
       run: |
-        # Add build steps here, for example:
-        # npm install
-        # npm run build
+        # Configure Docker to use gcloud as a credential helper
+        gcloud auth configure-docker gcr.io -q
         
-    - name: Deploy to E2 VM
+        # Build the Docker image
+        docker build -t gcr.io/${{ secrets.GCP_PROJECT_ID }}/gcp-publishing:latest .
+        
+        # Push the image to Container Registry
+        docker push gcr.io/${{ secrets.GCP_PROJECT_ID }}/gcp-publishing:latest
+      
+    - name: Deploy to Cloud Run with pre-built image
       run: |
-        # Create a deployment directory
-        gcloud compute ssh github-actions@my-app-server --zone=us-central1-a --command="mkdir -p ~/app"
-        
-        # Copy the application files to the VM
-        gcloud compute scp --recurse --zone=us-central1-a ./* github-actions@my-app-server:~/app/
-        
-        # Run deployment commands on the VM
-        gcloud compute ssh github-actions@my-app-server --zone=us-central1-a --command="cd ~/app && ./deploy.sh"
+        gcloud run deploy gcp-publishing \
+          --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/gcp-publishing:latest \
+          --region=us-central1 \
+          --platform=managed \
+          --allow-unauthenticated
