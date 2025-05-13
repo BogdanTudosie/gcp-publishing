@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -26,23 +27,11 @@ jobs:
     - name: Set up Cloud SDK
       uses: google-github-actions/setup-gcloud@v2
       
-    - name: Create Artifact Registry Repository
-      run: |
-        # Check if repository exists, if not create it
-        if ! gcloud artifacts repositories describe cloud-run-source-deploy --location=us-central1 &>/dev/null; then
-          echo "Creating Artifact Registry repository..."
-          gcloud artifacts repositories create cloud-run-source-deploy \
-            --repository-format=docker \
-            --location=us-central1 \
-            --description="Repository for Cloud Run deployments"
-        else
-          echo "Repository already exists, skipping creation."
-        fi
-      continue-on-error: true
-      
     - name: Deploy to Cloud Run
-      uses: google-github-actions/deploy-cloudrun@v2
-      with:
-        service: my-app-dev
-        region: us-central1
-        source: .
+      id: deploy
+      run: |
+        gcloud run deploy gcp-publishing \
+          --source . \
+          --region=us-central1 \
+          --project=${{ secrets.GCP_PROJECT_ID }} \
+          --allow-unauthenticated
