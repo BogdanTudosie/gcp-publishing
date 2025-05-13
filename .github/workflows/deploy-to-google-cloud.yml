@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+  # Allow manual triggering
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -26,6 +28,20 @@ jobs:
     - name: Set up Cloud SDK
       uses: google-github-actions/setup-gcloud@v2
       
+    - name: Check API Status
+      run: |
+        echo "Checking enabled APIs..."
+        gcloud services list --enabled
+    
+    - name: Enable Required APIs
+      run: |
+        echo "Enabling required APIs..."
+        gcloud services enable run.googleapis.com
+        gcloud services enable artifactregistry.googleapis.com
+        gcloud services enable cloudbuild.googleapis.com
+        gcloud services enable iam.googleapis.com
+      continue-on-error: true
+      
     - name: Create Artifact Registry Repository
       run: |
         # Check if repository exists, if not create it
@@ -41,8 +57,23 @@ jobs:
       continue-on-error: true
       
     - name: Deploy to Cloud Run
+      id: deploy
       uses: google-github-actions/deploy-cloudrun@v2
       with:
         service: my-app-dev
         region: us-central1
         source: .
+        # Optional: uncomment if you want unauthenticated access
+        # flags: --allow-unauthenticated
+      
+    - name: Show Deployment URL
+      if: ${{ steps.deploy.outputs.url }}
+      run: |
+        echo "Your application was deployed to: ${{ steps.deploy.outputs.url }}"
+        
+    - name: Deployment Summary
+      run: |
+        echo "✅ Deployment completed"
+        echo "Project ID: ${{ secrets.GCP_PROJECT_ID }}"
+        echo "Service: my-app-dev"
+        echo "Region: us-central1"
